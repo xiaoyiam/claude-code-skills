@@ -8,6 +8,7 @@
 |------|------|
 | `/download-video` | 使用 yt-dlp 下载视频（支持多种选项） |
 | `/下载` | 快速下载视频到当前目录 |
+| `/scan-todos` | 扫描 Daily Note 中的待办事项并整理到 ToDo-List |
 | `/更新skill文档` | 扫描所有 skills 并更新文档 |
 | `/push` | 将 skills 推送到 GitHub |
 
@@ -53,6 +54,7 @@ claude-code-skills/
 └── commands/          # Skills 文件
     ├── download-video.md
     ├── push.md
+    ├── scan-todos.md
     ├── 下载.md
     └── 更新skill文档.md
 ```
