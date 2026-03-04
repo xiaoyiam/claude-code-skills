@@ -29,11 +29,11 @@ chmod +x install.sh
 # 克隆仓库
 git clone https://github.com/xiaoyiam/claude-code-skills.git
 
-# 创建 Claude commands 目录（如不存在）
-mkdir -p ~/.claude/commands
+# 创建 Claude skills 目录（如不存在）
+mkdir -p ~/.claude/skills
 
 # 复制所有 skills
-cp claude-code-skills/commands/*.md ~/.claude/commands/
+cp -r claude-code-skills/skills/* ~/.claude/skills/
 ```
 
 ## 依赖
@@ -49,14 +49,19 @@ cp claude-code-skills/commands/*.md ~/.claude/commands/
 
 ```
 claude-code-skills/
-├── README.md          # 本文件
-├── install.sh         # 安装脚本
-└── commands/          # Skills 文件
-    ├── download-video.md
-    ├── push.md
-    ├── scan-todos.md
-    ├── 下载.md
-    └── 更新skill文档.md
+├── README.md              # 本文件
+├── install.sh             # 安装脚本
+└── skills/                # Skills 目录
+    ├── download-video/
+    │   └── SKILL.md
+    ├── push/
+    │   └── SKILL.md
+    ├── scan-todos/
+    │   └── SKILL.md
+    ├── 下载/
+    │   └── SKILL.md
+    └── 更新skill文档/
+        └── SKILL.md
 ```
 
 ## 更新 Skills

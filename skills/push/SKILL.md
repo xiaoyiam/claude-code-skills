@@ -9,7 +9,8 @@
 
 ### 1. 同步 skills 文件
 ```bash
-cp ~/.claude/commands/*.md "/Users/xiaoyi/xiaoyi.com/github-repos/claude-code-skills/commands/"
+# 复制所有 skills 目录到仓库
+cp -r ~/.claude/skills/* "/Users/xiaoyi/xiaoyi.com/github-repos/claude-code-skills/skills/"
 ```
 
 ### 2. 更新 README.md

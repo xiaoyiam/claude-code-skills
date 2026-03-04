@@ -5,7 +5,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-TARGET_DIR="$HOME/.claude/commands"
+TARGET_DIR="$HOME/.claude/skills"
 
 echo "=== Claude Code Skills 安装脚本 ==="
 echo ""
@@ -18,15 +18,21 @@ fi
 
 # 复制 skills
 echo "复制 skills..."
-cp "$SCRIPT_DIR/commands/"*.md "$TARGET_DIR/"
+for skill_dir in "$SCRIPT_DIR/skills/"*/; do
+    skill_name=$(basename "$skill_dir")
+    mkdir -p "$TARGET_DIR/$skill_name"
+    cp -r "$skill_dir"* "$TARGET_DIR/$skill_name/"
+    echo "  已安装: /$skill_name"
+done
 
-# 列出已安装的 skills
 echo ""
 echo "已安装的 Skills:"
 echo "----------------"
-for file in "$TARGET_DIR"/*.md; do
-    name=$(basename "$file" .md)
-    echo "  /$name"
+for skill_dir in "$TARGET_DIR/"*/; do
+    name=$(basename "$skill_dir")
+    if [ "$name" != "*" ]; then
+        echo "  /$name"
+    fi
 done
 
 echo ""
