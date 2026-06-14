@@ -11,6 +11,7 @@
 | `/scan-todos` | 扫描 Daily Note 中的待办事项并整理到 ToDo-List |
 | `/更新skill文档` | 扫描所有 skills 并更新文档 |
 | `/push` | 将 skills 推送到 GitHub |
+| `/openmind-course-notes` | 下载开智元学课程文字讲义和图片为离线 Markdown（视频受 DRM 保护跳过） |
 
 ## 在其他电脑上安装
 
