@@ -44,6 +44,10 @@ MD_IMG = re.compile(
 )
 
 
+# Card types we know how to render
+KNOWN_CARD_TYPES = {"text", "video", "resource"}
+
+
 # ---------------------------------------------------------------------------
 # CDP helpers (vendored so the script is self-contained)
 # ---------------------------------------------------------------------------
@@ -195,10 +199,69 @@ def rewrite_images(text: str, url_map: dict) -> str:
     return MD_IMG.sub(repl, text)
 
 
-def build_outputs(directory: dict, out_dir: Path) -> dict:
+def fetch_resource_url(slug: str, card_id: str) -> tuple[str, str] | None:
+    """Returns (download_url, file_name) or None."""
+    ws = cdp_get_tab_ws("openmindclub")
+    expr = f"""
+    (async () => {{
+      const r = await fetch(
+        '/api/course/{slug}/card/{card_id}/download',
+        {{credentials:'include'}}
+      );
+      return {{status: r.status, body: await r.text()}};
+    }})()
+    """
+    try:
+        v = cdp_eval(ws, expr)
+    except Exception as e:
+        print(f"  cdp_eval failed for {card_id}: {e}")
+        return None
+    if v["status"] != 200:
+        return None
+    try:
+        obj = json.loads(v["body"])
+        d = obj.get("data") or {}
+        url = d.get("downloadUrl")
+        name = d.get("fileName") or "resource.bin"
+        if url:
+            return url, name
+    except Exception:
+        return None
+    return None
+
+
+def download_resource(url: str, file_name: str, res_dir: Path) -> tuple[str, bool, str]:
+    safe = safe_name(file_name, 120)
+    out = res_dir / safe
+    if out.exists() and out.stat().st_size > 0:
+        return safe, True, "cached"
+    try:
+        req = urllib.request.Request(url, headers=HEADERS)
+        with urllib.request.urlopen(req, timeout=60) as r:
+            data = r.read()
+        out.write_bytes(data)
+        return safe, True, f"{len(data)}B"
+    except Exception as e:
+        try:
+            r = subprocess.run(
+                ["curl", "-sfL", "--retry", "3",
+                 "-A", HEADERS["User-Agent"],
+                 "-H", f"Referer: {HEADERS['Referer']}",
+                 "-o", str(out), url],
+                timeout=120,
+            )
+            if r.returncode == 0 and out.exists() and out.stat().st_size > 0:
+                return safe, True, "curl-retry"
+        except Exception:
+            pass
+        return safe, False, str(e)
+
+
+def build_outputs(directory: dict, slug: str, out_dir: Path) -> dict:
     chapters = directory["data"]
     img_dir = out_dir / "images"
     img_dir.mkdir(parents=True, exist_ok=True)
+    res_dir = out_dir / "resources"
 
     # 1. images
     urls = collect_image_urls(chapters)
@@ -223,6 +286,37 @@ def build_outputs(directory: dict, out_dir: Path) -> dict:
         for u, m in fails[:5]:
             print(f"  {u} -> {m}")
 
+    # 1b. resource cards (zip/pdf attachments)
+    resource_cards = [c for _, c in
+                      ((ch, c) for ch in chapters for c in ch["cards"])
+                      if c["type"] == "resource"]
+    resource_map: dict[str, str] = {}
+    res_ok = res_fail = 0
+    if resource_cards:
+        res_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[resources] downloading {len(resource_cards)} resource files...",
+              flush=True)
+        if not chrome_cdp_alive():
+            print("  Chrome CDP not running; resources will be skipped",
+                  flush=True)
+        else:
+            for i, c in enumerate(resource_cards, 1):
+                info = fetch_resource_url(slug, c["id"])
+                if not info:
+                    print(f"  [{i}/{len(resource_cards)}] "
+                          f"{c['title']!r}: no download URL")
+                    res_fail += 1
+                    continue
+                url, fname = info
+                local, ok, msg = download_resource(url, fname, res_dir)
+                if ok:
+                    resource_map[c["id"]] = local
+                    res_ok += 1
+                else:
+                    res_fail += 1
+                print(f"  [{i}/{len(resource_cards)}] {c['title']!r} -> "
+                      f"{local} ({msg})")
+
     # 2. chapter markdown + index
     print("[markdown] writing chapter files...", flush=True)
     index = [
@@ -234,7 +328,9 @@ def build_outputs(directory: dict, out_dir: Path) -> dict:
         "",
     ]
     stats = {"chapters": len(chapters), "text": 0, "video": 0,
-             "images_ok": len(url_map), "images_fail": len(fails)}
+             "resource": 0, "unknown": 0,
+             "images_ok": len(url_map), "images_fail": len(fails),
+             "resources_ok": res_ok, "resources_fail": res_fail}
 
     for i, ch in enumerate(chapters, 1):
         ch_title = ch["title"]
@@ -242,7 +338,7 @@ def build_outputs(directory: dict, out_dir: Path) -> dict:
         ch_file = out_dir / f"{ch_slug}.md"
 
         lines = [f"# {ch_title}", ""]
-        text_n = vid_n = 0
+        text_n = vid_n = res_n = unk_n = 0
         for c in ch["cards"]:
             title = c["title"]
             ctype = c["type"]
@@ -259,21 +355,57 @@ def build_outputs(directory: dict, out_dir: Path) -> dict:
                 ]
                 if content:
                     lines += [content, ""]
-            else:
+            elif ctype == "resource":
+                res_n += 1
+                res = c.get("resource") or {}
+                fname = res.get("fileName", title)
+                fsize = res.get("fileSize")
+                size_h = f"{fsize/1024:.1f} KB" if fsize else ""
+                lines += [f"## 📦 {title}", ""]
+                local = resource_map.get(c["id"])
+                if local:
+                    lines += [
+                        f"> 资源文件：[{fname}](resources/{local})"
+                        + (f" · {size_h}" if size_h else ""),
+                        "",
+                    ]
+                else:
+                    lines += [
+                        f"> 资源文件 `{fname}`（下载失败或未抓取）"
+                        + (f" · {size_h}" if size_h else ""),
+                        "",
+                    ]
+                if content:
+                    lines += [content, ""]
+            elif ctype == "text":
                 text_n += 1
                 lines += [f"## {title}", ""]
                 if content:
                     lines += [content, ""]
                 else:
                     lines += ["_（无内容）_", ""]
+            else:
+                unk_n += 1
+                lines += [f"## ❓ {title}", ""]
+                lines += [
+                    f"> 未知卡片类型 `{ctype}` — 请人工查看 directory.json",
+                    "",
+                ]
+                if content:
+                    lines += [content, ""]
         ch_file.write_text("\n".join(lines), encoding="utf-8")
         stats["text"] += text_n
         stats["video"] += vid_n
-        index.append(
-            f"- [{ch_title}]({ch_slug}.md) — {text_n}文字 / {vid_n}视频"
-        )
-        print(f"  -> {ch_file.name}  ({text_n}文字 + {vid_n}视频)",
-              flush=True)
+        stats["resource"] += res_n
+        stats["unknown"] += unk_n
+        parts = []
+        if text_n: parts.append(f"{text_n}文字")
+        if vid_n: parts.append(f"{vid_n}视频")
+        if res_n: parts.append(f"{res_n}资源")
+        if unk_n: parts.append(f"{unk_n}未知")
+        summary = " / ".join(parts) if parts else "0 张卡片"
+        index.append(f"- [{ch_title}]({ch_slug}.md) — {summary}")
+        print(f"  -> {ch_file.name}  ({summary})", flush=True)
 
     (out_dir / "README.md").write_text("\n".join(index) + "\n",
                                        encoding="utf-8")
@@ -371,12 +503,17 @@ def main() -> int:
         )
         print(f"[api] saved {dir_json_path}", flush=True)
 
-    stats = build_outputs(directory, out_dir)
+    stats = build_outputs(directory, slug, out_dir)
     print()
     print(f"DONE  output={out_dir}")
     print(f"  chapters: {stats['chapters']}")
     print(f"  text cards: {stats['text']}")
     print(f"  video cards: {stats['video']} (skipped, DRM)")
+    print(f"  resource cards: {stats['resource']} "
+          f"({stats['resources_ok']} downloaded, "
+          f"{stats['resources_fail']} failed)")
+    if stats["unknown"]:
+        print(f"  UNKNOWN cards: {stats['unknown']} — check chapter files")
     print(f"  images: {stats['images_ok']} ok, {stats['images_fail']} failed")
     return 0
 

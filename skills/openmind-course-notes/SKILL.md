@@ -1,6 +1,6 @@
 ---
 name: openmind-course-notes
-description: Downloads text lessons (cards) and images from an openmindclub.com (开智元学) course as an offline Markdown bundle. Use when the user provides an openmindclub course URL like https://m.openmindclub.com/stu/<slug>/content and asks to download / archive / 整理 / 离线 the course notes / 讲义. Videos are DRM-protected and intentionally skipped.
+description: Downloads text lessons, images, and resource files (zip/pdf attachments) from an openmindclub.com (开智元学) course as an offline Markdown bundle. Use when the user provides an openmindclub course URL like https://m.openmindclub.com/stu/<slug>/content and asks to download / archive / 整理 / 离线 the course notes / 讲义. Videos are DRM-protected and intentionally skipped. Includes a verify.py script to cross-check coverage.
 ---
 
 # OpenMind Course Notes
@@ -80,12 +80,47 @@ want a fixed wait instead of interactive (default 0 = wait for stdin).
 ├── 01-<chapter-title>.md     ← one file per chapter, in order
 ├── 02-<chapter-title>.md
 ├── ...
-└── images/                   ← all referenced images, hashed filenames
-    └── <sha1prefix>-<name>.<ext>
+├── images/                   ← all referenced images, hashed filenames
+│   └── <sha1prefix>-<name>.<ext>
+└── resources/                ← downloaded zip/pdf/etc resource cards
+    └── <sanitized-original-filename>
 ```
 
-Each Markdown file uses `## <card title>` for cards. Video cards are marked
-`## 🎬 <title>` with a placeholder note and the Tencent VOD `fileId`.
+Card prefixes in markdown:
+
+| Type | Heading | Notes |
+|---|---|---|
+| `text` | `## <title>` | inline content as markdown |
+| `video` | `## 🎬 <title>` | placeholder only — DRM, not downloaded |
+| `resource` | `## 📦 <title>` | links to local file in `resources/` |
+| unknown | `## ❓ <title>` | flags any new card type not seen before |
+
+## Verifying coverage
+
+The skill ships with a verification script that cross-checks the local
+download against the live API:
+
+```bash
+python3 ${SKILL_DIR}/scripts/verify.py <course-slug> [--output <dir>] [--sample N]
+```
+
+Checks performed:
+
+1. Card count + type distribution in `directory.json`
+2. Unexpected card types (anything beyond text/video/resource)
+3. Every markdown image URL has a non-empty local file
+4. Orphan local images (cosmetic; from previous runs)
+5. HTML `<img>` tags in content that the markdown regex would miss
+6. Attachment-like URLs (`.pdf .zip .mp3 .mp4 ...`) in content
+7. Detail-API sampling for N text + N/4 video cards:
+   - `front` from detail API matches stored `frontContent`
+   - `back` is empty (warn if non-empty — content was missed)
+   - Video subtitles array is empty (warn if non-empty)
+
+Exit code is non-zero if any issue is found.
+
+**Run verify after every download** — the platform may add new card types
+over time, and this is how the skill catches that.
 
 ## Re-runs
 
